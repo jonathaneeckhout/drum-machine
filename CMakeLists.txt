@@ -4,28 +4,45 @@ project(drum-machine VERSION 0.1.0 LANGUAGES C CXX)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
-option(DRUM_MACHINE_BUILD_APP "Build the SDL3 desktop application" ON)
+option(DRUM_MACHINE_BUILD_APP "Build the application and SDL audio adapter" ON)
+option(DRUM_MACHINE_BUILD_DESKTOP "Build the optional ImGui desktop frontend" ON)
 include(CTest)
 
-add_library(drum_engine src/engine.cpp)
-target_include_directories(drum_engine PUBLIC src)
-target_compile_options(drum_engine PRIVATE -Wall -Wextra -Wpedantic)
+add_library(drum_instrument src/instrument.cpp)
+target_include_directories(drum_instrument PUBLIC src)
+target_compile_options(drum_instrument PRIVATE -Wall -Wextra -Wpedantic)
+
+add_library(drum_terminal src/frontends/terminal.cpp)
+target_link_libraries(drum_terminal PUBLIC drum_instrument)
+target_compile_options(drum_terminal PRIVATE -Wall -Wextra -Wpedantic)
 
 if(BUILD_TESTING)
-    add_executable(engine_tests tests/engine_tests.cpp)
-    target_link_libraries(engine_tests PRIVATE drum_engine)
-    add_test(NAME engine COMMAND engine_tests)
+    add_executable(instrument_tests tests/instrument_tests.cpp)
+    target_link_libraries(instrument_tests PRIVATE drum_instrument)
+    add_test(NAME instrument COMMAND instrument_tests)
+    add_executable(terminal_tests tests/terminal_tests.cpp)
+    target_link_libraries(terminal_tests PRIVATE drum_terminal)
+    add_test(NAME terminal_commands COMMAND terminal_tests)
 endif()
 
 if(DRUM_MACHINE_BUILD_APP)
     include(FetchContent)
     find_package(SDL3 3.2 QUIET CONFIG)
     if(NOT SDL3_FOUND)
-        # Keep the installed executable independent of a build-tree SDL .so.
         set(SDL_SHARED OFF CACHE BOOL "" FORCE)
         set(SDL_STATIC ON CACHE BOOL "" FORCE)
         set(SDL_TESTS OFF CACHE BOOL "" FORCE)
+        set(SDL_TEST_LIBRARY OFF CACHE BOOL "" FORCE)
         set(SDL_EXAMPLES OFF CACHE BOOL "" FORCE)
+        # A terminal-only build needs no SDL graphics/display backends either.
+        if(DRUM_MACHINE_BUILD_DESKTOP)
+            set(SDL_UNIX_CONSOLE_BUILD OFF CACHE BOOL "" FORCE)
+        else()
+            set(SDL_UNIX_CONSOLE_BUILD ON CACHE BOOL "" FORCE)
+        endif()
+        set(SDL_VIDEO ${DRUM_MACHINE_BUILD_DESKTOP} CACHE BOOL "" FORCE)
+        set(SDL_RENDER ${DRUM_MACHINE_BUILD_DESKTOP} CACHE BOOL "" FORCE)
+        set(SDL_GPU ${DRUM_MACHINE_BUILD_DESKTOP} CACHE BOOL "" FORCE)
         if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/.deps/SDL/CMakeLists.txt")
             set(FETCHCONTENT_SOURCE_DIR_SDL "${CMAKE_CURRENT_SOURCE_DIR}/.deps/SDL")
         endif()
@@ -33,34 +50,52 @@ if(DRUM_MACHINE_BUILD_APP)
             GIT_TAG release-3.2.28 GIT_SHALLOW TRUE)
         FetchContent_MakeAvailable(SDL)
     endif()
-    if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/.deps/imgui/imgui.cpp")
-        set(FETCHCONTENT_SOURCE_DIR_IMGUI "${CMAKE_CURRENT_SOURCE_DIR}/.deps/imgui")
-    endif()
-    FetchContent_Declare(imgui GIT_REPOSITORY https://github.com/ocornut/imgui.git
-        GIT_TAG v1.92.4 GIT_SHALLOW TRUE)
-    FetchContent_MakeAvailable(imgui)
-    add_library(drum_ui STATIC
-        ${imgui_SOURCE_DIR}/imgui.cpp ${imgui_SOURCE_DIR}/imgui_draw.cpp
-        ${imgui_SOURCE_DIR}/imgui_tables.cpp ${imgui_SOURCE_DIR}/imgui_widgets.cpp
-        ${imgui_SOURCE_DIR}/backends/imgui_impl_sdl3.cpp
-        ${imgui_SOURCE_DIR}/backends/imgui_impl_sdlrenderer3.cpp)
-    target_include_directories(drum_ui PUBLIC ${imgui_SOURCE_DIR} ${imgui_SOURCE_DIR}/backends)
-    target_link_libraries(drum_ui PUBLIC SDL3::SDL3)
-    add_executable(drum-machine src/main.cpp)
+
+    add_library(drum_audio src/audio/sdl_audio.cpp src/audio/samples.cpp)
+    target_link_libraries(drum_audio PUBLIC drum_instrument PRIVATE SDL3::SDL3)
+    target_compile_options(drum_audio PRIVATE -Wall -Wextra -Wpedantic)
+
+    add_executable(drum-machine src/main.cpp src/app/options.cpp src/app/export.cpp)
     target_compile_options(drum-machine PRIVATE -Wall -Wextra -Wpedantic)
-    target_link_libraries(drum-machine PRIVATE drum_engine drum_ui)
+    target_link_libraries(drum-machine PRIVATE drum_audio drum_terminal)
+
+    if(DRUM_MACHINE_BUILD_DESKTOP)
+        if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/.deps/imgui/imgui.cpp")
+            set(FETCHCONTENT_SOURCE_DIR_IMGUI "${CMAKE_CURRENT_SOURCE_DIR}/.deps/imgui")
+        endif()
+        FetchContent_Declare(imgui GIT_REPOSITORY https://github.com/ocornut/imgui.git
+            GIT_TAG v1.92.4 GIT_SHALLOW TRUE)
+        FetchContent_MakeAvailable(imgui)
+        add_library(drum_imgui STATIC
+            ${imgui_SOURCE_DIR}/imgui.cpp ${imgui_SOURCE_DIR}/imgui_draw.cpp
+            ${imgui_SOURCE_DIR}/imgui_tables.cpp ${imgui_SOURCE_DIR}/imgui_widgets.cpp
+            ${imgui_SOURCE_DIR}/backends/imgui_impl_sdl3.cpp
+            ${imgui_SOURCE_DIR}/backends/imgui_impl_sdlrenderer3.cpp)
+        target_include_directories(drum_imgui PUBLIC ${imgui_SOURCE_DIR} ${imgui_SOURCE_DIR}/backends)
+        target_link_libraries(drum_imgui PUBLIC SDL3::SDL3)
+        add_library(drum_desktop src/frontends/desktop.cpp)
+        target_link_libraries(drum_desktop PUBLIC drum_instrument PRIVATE drum_imgui drum_audio)
+        target_compile_options(drum_desktop PRIVATE -Wall -Wextra -Wpedantic)
+        target_link_libraries(drum-machine PRIVATE drum_desktop)
+        target_compile_definitions(drum-machine PRIVATE DRUM_MACHINE_DESKTOP=1)
+        if(BUILD_TESTING)
+            add_test(NAME desktop_smoke COMMAND drum-machine --smoke-test)
+        endif()
+        install(FILES ${imgui_SOURCE_DIR}/LICENSE.txt
+            DESTINATION share/drum-machine/licenses RENAME imgui-LICENSE.txt)
+    endif()
+
     add_custom_command(TARGET drum-machine POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E copy_directory
         "${CMAKE_CURRENT_SOURCE_DIR}/assets" "$<TARGET_FILE_DIR:drum-machine>/assets")
     if(BUILD_TESTING)
-        add_test(NAME desktop_smoke COMMAND drum-machine --smoke-test)
+        add_test(NAME terminal_smoke COMMAND ${CMAKE_COMMAND}
+            -DDRUM_MACHINE=$<TARGET_FILE:drum-machine> -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/terminal_smoke.cmake")
         add_test(NAME sample_render COMMAND drum-machine --render-demo "${CMAKE_CURRENT_BINARY_DIR}/demo.wav")
     endif()
     install(TARGETS drum-machine RUNTIME DESTINATION bin)
     install(DIRECTORY assets/ DESTINATION share/drum-machine/assets)
     install(FILES LICENSE THIRD_PARTY.md DESTINATION share/drum-machine)
-    install(FILES ${imgui_SOURCE_DIR}/LICENSE.txt
-        DESTINATION share/drum-machine/licenses RENAME imgui-LICENSE.txt)
     if(DEFINED sdl_SOURCE_DIR)
         install(FILES ${sdl_SOURCE_DIR}/LICENSE.txt
             DESTINATION share/drum-machine/licenses RENAME SDL-LICENSE.txt)
