@@ -1,0 +1,8 @@
+all:
+  children:
+    drum_machines:
+      hosts:
+        drummachine:
+          ansible_host: drummachine.local
+          ansible_user: drummer
+          ansible_python_interpreter: /usr/bin/python3

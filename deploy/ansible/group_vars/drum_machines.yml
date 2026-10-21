@@ -1,0 +1,5 @@
+drum_machine_user: jojo
+drum_machine_artifact: "{{ playbook_dir }}/../../build-rpi3/drum-machine-rpi3.tar.gz"
+drum_machine_root: /opt/drum-machine
+drum_machine_audio_device: "default:CARD=Headphones"
+drum_machine_audio_driver: alsa

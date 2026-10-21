@@ -3,12 +3,18 @@
 A small, standalone drum machine for Linux. Four sample instruments, one editable
 16-step pattern, and a C++ engine designed to carry over to an embedded Linux instrument.
 
+For the Pi 3 ARM64 cross-build, Ansible deployment to `drummachine.lab.be`, and
+boot service with attachable terminal controls, see [Raspberry Pi deployment](docs/raspberry-pi.md).
+Run `./tools/deploy-rpi3.sh` to build and deploy, or add `--skip-build` to deploy
+the existing ARM64 package.
+
 ![drum-machine](docs/screenshot.png)
 
 ## Build and run
 
 Requires a C++20 compiler, CMake 3.24+, Ninja (or another CMake generator), Git,
-and Linux audio/window development libraries. For Ubuntu/Debian:
+and Linux audio/window development libraries. Application integration tests also
+need Python 3. For Ubuntu/Debian:
 
 ```sh
 sudo apt install build-essential cmake ninja-build git pkg-config \

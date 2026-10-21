@@ -1,0 +1,29 @@
+[Unit]
+Description=Drum machine audio engine and terminal control service
+After=sound.target
+Wants=sound.target
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User={{ drum_machine_user }}
+SupplementaryGroups=audio
+WorkingDirectory={{ drum_machine_root }}/current
+Environment=SDL_AUDIODRIVER={{ drum_machine_audio_driver }}
+Environment=SDL_AUDIO_ALSA_DEFAULT_PLAYBACK_DEVICE={{ drum_machine_audio_device }}
+ExecStart={{ drum_machine_root }}/current/bin/drum-machine --serve --socket /run/drum-machine/control.sock
+RuntimeDirectory=drum-machine
+RuntimeDirectoryMode=0700
+UMask=0077
+Restart=on-failure
+RestartSec=3
+TimeoutStopSec=10
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+RestrictAddressFamilies=AF_UNIX
+
+[Install]
+WantedBy=multi-user.target

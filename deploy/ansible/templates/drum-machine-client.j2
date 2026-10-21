@@ -1,0 +1,3 @@
+#!/bin/sh
+# Attach to the boot service; closing this terminal leaves the engine running.
+exec {{ drum_machine_root }}/current/bin/drum-machine --connect "$@"

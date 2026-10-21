@@ -70,3 +70,5 @@ Testing/
 # Local dependency sources
 /.deps/
 *.wav.tmp
+inventory.yml
+
