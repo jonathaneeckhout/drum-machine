@@ -14,6 +14,17 @@ int main() {
     drum::Samples samples;
     for (auto& sample : samples) sample.pcm = {1, 1};
     drum::Instrument instrument(std::move(samples));
+    {
+        std::ostringstream selected;
+        drum::executeTerminalCommand(instrument, "select 2", selected);
+        check(instrument.status().selectedTrack == 1, "select uses one-based track numbers");
+        drum::executeTerminalCommand(instrument, "select 0", selected);
+        drum::executeTerminalCommand(instrument, "select 5", selected);
+        drum::executeTerminalCommand(instrument, "select 3 garbage", selected);
+        check(instrument.status().selectedTrack == 1, "invalid select cannot change selection");
+        drum::executeTerminalCommand(instrument, "status", selected);
+        check(selected.str().find("selected track: 2") != std::string::npos, "status reports selection");
+    }
     std::istringstream input("clear\nstep 1 16\ntempo 150\nvolume 1 0.4\nmute 1\nmute 1\nplay\nstatus\n");
     std::ostringstream output;
     check(drum::runTerminal(instrument, input, output) == 0, "script completes");

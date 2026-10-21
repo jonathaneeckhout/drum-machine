@@ -8,11 +8,13 @@ StartLimitBurst=5
 [Service]
 Type=simple
 User={{ drum_machine_user }}
-SupplementaryGroups=audio
+SupplementaryGroups=audio{% if drum_machine_step_buttons_enabled %} i2c{% endif %}
+
 WorkingDirectory={{ drum_machine_root }}/current
 Environment=SDL_AUDIODRIVER={{ drum_machine_audio_driver }}
 Environment=SDL_AUDIO_ALSA_DEFAULT_PLAYBACK_DEVICE={{ drum_machine_audio_device }}
-ExecStart={{ drum_machine_root }}/current/bin/drum-machine --serve --socket /run/drum-machine/control.sock
+ExecStart={{ drum_machine_root }}/current/bin/drum-machine --serve --socket /run/drum-machine/control.sock{% if drum_machine_step_buttons_enabled %} --step-buttons --i2c-device {{ drum_machine_i2c_device }} --step-addresses {{ drum_machine_step_addresses | join(' ') }}{% endif %}
+
 RuntimeDirectory=drum-machine
 RuntimeDirectoryMode=0700
 UMask=0077

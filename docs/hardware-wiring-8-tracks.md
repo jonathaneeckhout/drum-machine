@@ -1,5 +1,9 @@
 # Eight-track hardware connection proposal
 
+> The implemented CJMCU step-button setup uses **eight steps per board**, not
+> the 12-input grouping below. Follow [CJMCU step-button wiring](cjmcu-step-buttons.md)
+> for the purchased modules. The other eight-track controls remain a proposal.
+
 18 October 2026. Covers the user's revised list: 16 step buttons, 16 step LEDs,
 8 select buttons, 8 selection LEDs, 8 volume sliders, 8 mute buttons, Play,
 Stop, Next sequence and Previous sequence. Totals: 36 buttons, 24 LEDs and

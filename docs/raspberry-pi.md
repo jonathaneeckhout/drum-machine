@@ -55,32 +55,6 @@ switching compilers or architectures.
 
 ## Deploy using Ansible
 
-The deployment helper handles the cross-build, creates a project-local Ansible
-environment, validates the playbook and deploys to `jojo@drummachine.lab.be`:
-
-```sh
-./tools/deploy-rpi3.sh
-```
-
-It works from any working directory. Python 3 with venv/pip support, Docker and
-OpenSSH must be installed locally; normal SSH access and sudo on the Pi must work.
-First use may download Ansible and build dependencies. The script does not disable
-SSH host-key verification. It deploys immediately when invoked without
-`--syntax-check`.
-
-```sh
-./tools/deploy-rpi3.sh --skip-build          # Reuse the existing ARM64 archive
-./tools/deploy-rpi3.sh --jobs 8              # Control cross-build parallelism
-./tools/deploy-rpi3.sh --ask-become-pass     # Ask for the Pi's sudo password
-./tools/deploy-rpi3.sh --syntax-check        # No build or connection to the Pi
-./tools/deploy-rpi3.sh --skip-build -- --diff # Forward additional Ansible options
-```
-
-`--skip-build` requires an existing `build-rpi3/drum-machine-rpi3.tar.gz`; it
-deliberately does not check whether the source has changed since that build.
-
-For manual deployment instead of the helper, follow the commands below.
-
 Install Ansible on the development computer, not the Pi. A local virtual
 environment keeps it isolated:
 

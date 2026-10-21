@@ -21,6 +21,7 @@ struct TrackStatus {
     bool muted = false;
 };
 struct Status {
+    int selectedTrack = 0;
     bool playing = false;
     double tempo = 120.0;
     std::array<TrackStatus, trackCount> tracks{};
@@ -41,6 +42,8 @@ public:
     void setVolume(int track, float volume) noexcept; // 0..1; non-finite becomes 0.
     void toggleMute(int track) noexcept; // Restore the last nonzero level on unmute.
     void toggleStep(int track, int step) noexcept;
+    void selectTrack(int track) noexcept;
+    void toggleSelectedStep(int step) noexcept;
     void clearPattern() noexcept;
     void loadDemo() noexcept; // Pattern only; preserves tempo and levels.
     void preview(int track) noexcept;
@@ -51,6 +54,7 @@ public:
     void render(float* output, std::size_t frames) noexcept;
 
 private:
+    int selectedTrack_ = 0; // Control thread only; audio rendering does not read it.
     std::atomic<bool> playing_{false};
     std::atomic<double> tempo_{120.0};
     std::array<std::atomic<std::uint16_t>, trackCount> patterns_{};

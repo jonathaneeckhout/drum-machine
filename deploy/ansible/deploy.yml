@@ -15,6 +15,12 @@
           - drum_machine_root is match('^/[a-zA-Z0-9_/-]+$')
           - drum_machine_audio_driver in ['alsa', 'dummy']
           - drum_machine_audio_device is match('^[a-zA-Z0-9_:,=.-]+$')
+          - drum_machine_step_buttons_enabled is boolean
+          - drum_machine_i2c_device is match('^/dev/i2c-[0-9]+$')
+          - drum_machine_step_addresses | length == 2
+          - drum_machine_step_addresses | unique | length == 2
+          - drum_machine_step_addresses[0] is match('^0x2[0-7]$')
+          - drum_machine_step_addresses[1] is match('^0x2[0-7]$')
         fail_msg: This package targets Debian 13 ARM64; review the build environment for other systems.
 
     - name: Locate and fingerprint the local cross-build artifact
@@ -48,10 +54,80 @@
         update_cache: true
         cache_valid_time: 3600
 
-    - name: Allow the existing runtime user to access audio devices
+    - name: Configure I2C for step buttons
+      when: drum_machine_step_buttons_enabled
+      block:
+        - name: Install I2C diagnostics and kernel module tools
+          ansible.builtin.apt:
+            name: [i2c-tools, kmod]
+            state: present
+
+        - name: Check the configured Pi firmware configuration exists
+          ansible.builtin.stat:
+            path: "{{ drum_machine_boot_config }}"
+          register: pi_boot_config
+
+        - name: Require the actual firmware configuration
+          ansible.builtin.assert:
+            that: pi_boot_config.stat.exists
+            fail_msg: Set drum_machine_boot_config to this Pi's firmware config.txt path.
+
+        - name: Enable the header I2C bus on future boots
+          ansible.builtin.blockinfile:
+            path: "{{ drum_machine_boot_config }}"
+            marker: '# {mark} ANSIBLE DRUM MACHINE I2C'
+            block: |
+              [all]
+              dtparam=i2c_arm=on
+          register: i2c_boot_setting
+
+        - name: Ensure the I2C access group exists
+          ansible.builtin.group:
+            name: i2c
+            state: present
+
+        - name: Load the userspace I2C interface at boot
+          ansible.builtin.copy:
+            dest: /etc/modules-load.d/drum-machine-i2c.conf
+            content: "i2c-dev\n"
+            owner: root
+            group: root
+            mode: '0644'
+
+        - name: Load the userspace I2C interface now
+          ansible.builtin.command: /usr/sbin/modprobe i2c-dev
+          changed_when: false
+          when: not ansible_check_mode
+
+        - name: Set I2C device group permissions
+          ansible.builtin.copy:
+            dest: /etc/udev/rules.d/70-drum-machine-i2c.rules
+            content: |
+              SUBSYSTEM=="i2c-dev", KERNEL=="i2c-[0-9]*", GROUP="i2c", MODE="0660"
+            owner: root
+            group: root
+            mode: '0644'
+          register: i2c_udev_rule
+
+        - name: Reload I2C device permission rules
+          ansible.builtin.command: /usr/bin/udevadm control --reload-rules
+          changed_when: false
+          when: i2c_udev_rule.changed and not ansible_check_mode
+
+        - name: Apply permissions to existing I2C devices
+          ansible.builtin.command: /usr/bin/udevadm trigger --subsystem-match=i2c-dev --action=add
+          changed_when: false
+          when: i2c_udev_rule.changed and not ansible_check_mode
+
+        - name: Explain first-time bus activation
+          ansible.builtin.debug:
+            msg: I2C boot configuration updated. Reboot the Pi once to activate it; the audio/CLI service remains usable meanwhile.
+          when: i2c_boot_setting.changed
+
+    - name: Allow the existing runtime user to access audio and configured hardware
       ansible.builtin.user:
         name: "{{ drum_machine_user }}"
-        groups: audio
+        groups: "{{ ['audio', 'i2c'] if drum_machine_step_buttons_enabled else ['audio'] }}"
         append: true
 
     - name: Create installation and release directories

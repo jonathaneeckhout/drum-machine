@@ -26,7 +26,7 @@ int main(int argc, char** argv) {
         }
         drum::AudioOutput audio(instrument, options.smokeTest);
         int result = 0;
-        if (options.serve) result = drum::runService(instrument, socket, [&audio] { return audio.failed(); });
+        if (options.serve) result = drum::runService(instrument, socket, [&audio] { return audio.failed(); }, options.stepButtons);
         else if (options.terminal) result = drum::runTerminal(instrument, std::cin, std::cout);
 #ifdef DRUM_MACHINE_DESKTOP
         else result = drum::runDesktop(instrument, audio, {options.smokeTest, options.screenshot});

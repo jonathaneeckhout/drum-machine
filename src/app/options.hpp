@@ -1,4 +1,5 @@
 #pragma once
+#include "hardware/step_buttons.hpp"
 #include <filesystem>
 #include <string>
 
@@ -12,6 +13,7 @@ struct Options {
     std::filesystem::path assets, renderDemo, screenshot;
     std::filesystem::path socket;
     std::string command;
+    StepButtonConfig stepButtons;
 };
 Options parseOptions(int argc, char** argv);
 void printHelp();

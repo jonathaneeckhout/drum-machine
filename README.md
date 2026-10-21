@@ -8,6 +8,9 @@ boot service with attachable terminal controls, see [Raspberry Pi deployment](do
 Run `./tools/deploy-rpi3.sh` to build and deploy, or add `--skip-build` to deploy
 the existing ARM64 package.
 
+For physical step buttons using the purchased CJMCU-2317/MCP23017 modules,
+see [wiring and CLI track selection](docs/cjmcu-step-buttons.md).
+
 ![drum-machine](docs/screenshot.png)
 
 ## Build and run

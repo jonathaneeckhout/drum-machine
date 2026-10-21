@@ -7,9 +7,12 @@
 #include <cstdlib>
 #include <cstring>
 #include <iostream>
+#include <optional>
 #include <sstream>
 #include <stdexcept>
 #include <string_view>
+#include <utility>
+#include <vector>
 #include <poll.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
@@ -30,6 +33,14 @@ public:
     ~Descriptor() { ::close(fd_); }
     Descriptor(const Descriptor&) = delete;
     Descriptor& operator=(const Descriptor&) = delete;
+    Descriptor(Descriptor&& other) noexcept : fd_(std::exchange(other.fd_, -1)) {}
+    Descriptor& operator=(Descriptor&& other) noexcept {
+        if (this != &other) {
+            if (fd_ >= 0) ::close(fd_);
+            fd_ = std::exchange(other.fd_, -1);
+        }
+        return *this;
+    }
     int get() const { return fd_; }
 private:
     int fd_;
@@ -113,9 +124,15 @@ std::filesystem::path defaultControlSocket() {
 }
 
 int runService(Instrument& instrument, const std::filesystem::path& path,
-               const std::function<bool()>& audioFailed) {
+               const std::function<bool()>& audioFailed, const StepButtonConfig& buttons) {
+    using Clock = Mcp23017Steps::Clock;
+    struct Peer {
+        Descriptor connection;
+        std::string line;
+        Clock::time_point deadline;
+    };
     const auto target = address(path);
-    Descriptor listener(::socket(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0));
+    Descriptor listener(::socket(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC | SOCK_NONBLOCK, 0));
     // Never unlink an existing socket: a second service must not steal a live endpoint.
     // systemd removes the private runtime directory on service shutdown/restart.
     if (::bind(listener.get(), reinterpret_cast<const sockaddr*>(&target), sizeof(target)) < 0)
@@ -127,35 +144,57 @@ int runService(Instrument& instrument, const std::filesystem::path& path,
     if (::chmod(path.c_str(), 0600) < 0 || ::listen(listener.get(), 8) < 0)
         throw std::runtime_error("Cannot prepare control socket");
     Signals signals;
+    LinuxI2cRegisters bus(buttons.device);
+    std::optional<Mcp23017Steps> steps;
+    if (buttons.enabled) steps.emplace(bus, buttons.addresses, std::cerr);
+    std::vector<Peer> peers;
     std::cout << "Control service listening on " << path << std::endl;
     while (!stopping && !audioFailed()) {
-        pollfd ready{listener.get(), POLLIN, 0};
-        const int result = ::poll(&ready, 1, 100);
+        // GPIO and CLI commands share this thread; no hardware I/O touches audio.
+        if (steps) {
+            const auto presses = steps->poll(Clock::now());
+            for (int step = 0; step < stepCount; ++step)
+                if (presses & (1u << step)) instrument.toggleSelectedStep(step);
+        }
+        std::vector<pollfd> ready{{listener.get(), static_cast<short>(peers.size() < 8 ? POLLIN : 0), 0}};
+        for (const auto& peer : peers) ready.push_back({peer.connection.get(), POLLIN, 0});
+        const int result = ::poll(ready.data(), ready.size(), steps ? 5 : 100);
         if (result < 0 && errno == EINTR) continue;
         if (result < 0) throw std::runtime_error("Control socket poll failed");
-        if (result == 0) continue;
-        if (!(ready.revents & POLLIN)) throw std::runtime_error("Control listener closed unexpectedly");
-        const int accepted = ::accept4(listener.get(), nullptr, nullptr, SOCK_CLOEXEC);
-        if (accepted < 0 && errno == EINTR) continue;
-        Descriptor client(accepted);
-        timeout(client.get());
-        std::string line;
-        char buffer[256];
-        bool complete = false;
-        while (!stopping && line.size() <= maxCommand) {
-            const auto count = ::recv(client.get(), buffer, sizeof(buffer), 0);
-            if (count < 0 && errno == EINTR && !stopping) continue;
-            if (count <= 0) break;
-            line.append(buffer, static_cast<std::size_t>(count));
-            if (line.find('\n') != std::string::npos) { complete = true; break; }
+        const auto now = Clock::now();
+        for (std::size_t i = peers.size(); i-- > 0;) {
+            auto& peer = peers[i];
+            bool finished = now >= peer.deadline;
+            const auto flags = ready[i + 1].revents;
+            if (flags & (POLLIN | POLLHUP | POLLERR | POLLNVAL)) {
+                char buffer[256];
+                while (!finished) {
+                    const auto count = ::recv(peer.connection.get(), buffer, sizeof(buffer), 0);
+                    if (count < 0 && errno == EINTR) continue;
+                    if (count < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) break;
+                    if (count <= 0) { finished = true; break; }
+                    peer.line.append(buffer, static_cast<std::size_t>(count));
+                    finished = peer.line.size() > maxCommand || peer.line.find('\n') != std::string::npos;
+                }
+            }
+            if (!finished) continue;
+            std::ostringstream response;
+            const auto newline = peer.line.find('\n');
+            if (newline == std::string::npos || newline > maxCommand)
+                response << "Invalid or incomplete control request.\n";
+            else if (!executeTerminalCommand(instrument, std::string_view(peer.line).substr(0, newline), response))
+                response << "quit disconnects the client; use stop to stop playback.\n";
+            if (response.str().empty()) response << "ok\n";
+            sendAll(peer.connection.get(), response.str());
+            peers.erase(peers.begin() + static_cast<std::ptrdiff_t>(i));
         }
-        std::ostringstream response;
-        const auto newline = line.find('\n');
-        if (!complete || newline > maxCommand) response << "Invalid or incomplete control request.\n";
-        else if (!executeTerminalCommand(instrument, std::string_view(line).substr(0, newline), response))
-            response << "quit disconnects the client; use stop to stop playback.\n";
-        if (response.str().empty()) response << "ok\n";
-        sendAll(client.get(), response.str());
+        if (ready[0].revents & (POLLERR | POLLHUP | POLLNVAL))
+            throw std::runtime_error("Control listener closed unexpectedly");
+        if ((ready[0].revents & POLLIN) && peers.size() < 8) {
+            const int accepted = ::accept4(listener.get(), nullptr, nullptr, SOCK_CLOEXEC | SOCK_NONBLOCK);
+            if (accepted < 0 && (errno == EINTR || errno == EAGAIN || errno == EWOULDBLOCK)) continue;
+            peers.push_back({Descriptor(accepted), {}, now + std::chrono::seconds(2)});
+        }
     }
     instrument.stop();
     return 0;

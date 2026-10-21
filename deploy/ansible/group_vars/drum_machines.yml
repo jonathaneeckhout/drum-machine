@@ -3,3 +3,7 @@ drum_machine_artifact: "{{ playbook_dir }}/../../build-rpi3/drum-machine-rpi3.ta
 drum_machine_root: /opt/drum-machine
 drum_machine_audio_device: "default:CARD=Headphones"
 drum_machine_audio_driver: alsa
+drum_machine_step_buttons_enabled: true
+drum_machine_i2c_device: /dev/i2c-1
+drum_machine_step_addresses: ['0x20', '0x21']
+drum_machine_boot_config: /boot/firmware/config.txt

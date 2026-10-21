@@ -11,11 +11,12 @@ namespace drum {
 namespace {
 constexpr const char* help =
     "play | stop | tempo BPM | step TRACK STEP | volume TRACK LEVEL\n"
-    "mute TRACK | preview TRACK | clear | demo | status | help | quit\n"
+    "select TRACK | mute TRACK | preview TRACK | clear | demo | status | help | quit\n"
     "Tracks: 1=kick, 2=snare, 3=hi-hat, 4=clap. Steps: 1-16. Levels: 0-1.\n";
 void show(const Instrument& instrument, std::ostream& out) {
     const auto state = instrument.status();
     out << (state.playing ? "playing" : "stopped") << " / " << state.tempo << " BPM\n";
+    out << "selected track: " << state.selectedTrack + 1 << '\n';
     for (int track = 0; track < trackCount; ++track) {
         out << track + 1 << " ";
         for (bool step : state.tracks[track].steps) out << (step ? 'x' : '.');
@@ -50,6 +51,7 @@ bool executeTerminalCommand(Instrument& instrument, std::string_view line, std::
     else if (verb == "volume" && (command >> track >> value) && end() && validTrack() && std::isfinite(value) && value >= 0 && value <= 1)
         instrument.setVolume(track - 1, static_cast<float>(value));
     else if (verb == "mute" && (command >> track) && end() && validTrack()) instrument.toggleMute(track - 1);
+    else if (verb == "select" && (command >> track) && end() && validTrack()) instrument.selectTrack(track - 1);
     else if (verb == "preview" && (command >> track) && end() && validTrack()) instrument.preview(track - 1);
     else valid = false;
     output << (valid ? "ok\n" : "Invalid command or value. Type help.\n");

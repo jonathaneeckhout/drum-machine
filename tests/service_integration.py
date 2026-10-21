@@ -18,7 +18,8 @@ with tempfile.TemporaryDirectory(prefix="drum-service-") as directory:
     endpoint = Path(directory) / "control.sock"
     with open(Path(directory) / "service.log", "w+") as log:
         service = subprocess.Popen(
-            [binary, "--serve", "--socket", str(endpoint)],
+            [binary, "--serve", "--socket", str(endpoint), "--step-buttons",
+             "--i2c-device", str(Path(directory) / "missing-i2c")],
             stdin=subprocess.DEVNULL, stdout=log, stderr=log, env=env,
         )
         try:
@@ -39,11 +40,23 @@ with tempfile.TemporaryDirectory(prefix="drum-service-") as directory:
 
             assert stat.S_IMODE(endpoint.stat().st_mode) == 0o600
             command("clear")
+            assert "selected track: 1" in command("status")
+            command("select 3")
+            assert "selected track: 3" in command("status")
+            command("select 5", expected=1)
+            assert "selected track: 3" in command("status")
             command("tempo 137")
             command("step 2 9")
             command("volume 2 0.4")
             command("play")
             assert "playing / 137 BPM" in command("status")
+            # An unfinished CLI connection must not monopolize the control loop.
+            with socket.socket(socket.AF_UNIX) as partial:
+                partial.connect(str(endpoint))
+                partial.sendall(b"sta")
+                before = time.monotonic()
+                assert "playing / 137 BPM" in command("status")
+                assert time.monotonic() - before < 1, "partial request blocks other controls"
             client = subprocess.run(
                 [binary, "--connect", "--socket", str(endpoint)],
                 input="status\nquit\n", capture_output=True, text=True, env=env, timeout=5,
@@ -76,7 +89,9 @@ with tempfile.TemporaryDirectory(prefix="drum-service-") as directory:
             assert "playing / 137 BPM" in command("status")
             command("stop")
             assert "stopped / 137 BPM" in command("status")
-            for args in (["--serve", "--terminal"], ["--connect", "--render-demo", "ignored.wav"]):
+            for args in (["--serve", "--terminal"], ["--connect", "--render-demo", "ignored.wav"],
+                         ["--step-buttons"], ["--serve", "--step-buttons", "--step-addresses", "0x20", "0x20"],
+                         ["--serve", "--step-buttons", "--step-addresses", "0x20", "0x28"]):
                 assert subprocess.run([binary, *args], capture_output=True, env=env).returncode != 0
         finally:
             service.terminate()
@@ -88,5 +103,7 @@ with tempfile.TemporaryDirectory(prefix="drum-service-") as directory:
                 raise
         assert service.returncode == 0, "SIGTERM must stop the service cleanly"
         assert not endpoint.exists(), "shutdown must remove its socket"
+        log.seek(0)
+        assert "terminal/audio remain available" in log.read(), "missing hardware should be reported"
 
 print("Service/client integration passed.")

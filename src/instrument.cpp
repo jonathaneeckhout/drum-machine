@@ -62,6 +62,12 @@ void Instrument::toggleStep(int track, int step) noexcept {
         patterns_[track].fetch_xor(static_cast<std::uint16_t>(1u << step), std::memory_order_relaxed);
 }
 
+void Instrument::selectTrack(int track) noexcept {
+    if (validTrack(track)) selectedTrack_ = track;
+}
+
+void Instrument::toggleSelectedStep(int step) noexcept { toggleStep(selectedTrack_, step); }
+
 void Instrument::clearPattern() noexcept {
     for (auto& pattern : patterns_) pattern.store(0, std::memory_order_relaxed);
 }
@@ -77,6 +83,7 @@ void Instrument::preview(int track) noexcept {
 
 Status Instrument::status() const noexcept {
     Status state;
+    state.selectedTrack = selectedTrack_;
     state.playing = playing_.load(std::memory_order_relaxed);
     state.tempo = tempo_.load(std::memory_order_relaxed);
     state.currentStep = currentStep_.load(std::memory_order_relaxed);
