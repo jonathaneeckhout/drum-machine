@@ -11,7 +11,7 @@ eight-track hardware plan is separate work.
 Install Docker using its normal platform instructions. From the repository:
 
 ```sh
-bash tools/build.sh headless --test
+./tools/test.sh
 bash tools/build-rpi3.sh
 ```
 
@@ -55,31 +55,29 @@ switching compilers or architectures.
 
 ## Deploy using Ansible
 
-Install Ansible on the development computer, not the Pi. A local virtual
-environment keeps it isolated:
+Use the wrapper on the development computer. It creates the project-local
+Ansible environment, checks the playbook, cross-builds the package and deploys:
 
 ```sh
-python3 -m venv build-tools/ansible
-build-tools/ansible/bin/pip install -r deploy/ansible/requirements.txt
+# Verify SSH and the host key first; this command returns immediately.
+ssh jojo@drummachine.lab.be true
+./tools/deploy-rpi3.sh --ask-become-pass
+```
+
+If you already built the ARM64 package in the previous section, use
+`./tools/deploy-rpi3.sh --skip-build --ask-become-pass` to deploy it. Use
+`./tools/deploy-rpi3.sh --syntax-check` to validate Ansible without building or
+contacting the Pi. Omit `--ask-become-pass` only when the Pi user has
+passwordless sudo. No credentials or SSH keys are stored in the inventory,
+and SSH host-key checking remains enabled.
+
+For advanced use, after the wrapper has prepared the environment, the
+underlying command is:
+
+```sh
 build-tools/ansible/bin/ansible-playbook \
-  -i deploy/ansible/inventory.yml deploy/ansible/deploy.yml --syntax-check
+  -i deploy/ansible/inventory.yml deploy/ansible/deploy.yml --ask-become-pass
 ```
-
-Check that normal SSH works first, including trusted host-key verification:
-
-```sh
-ssh jojo@drummachine.lab.be
-```
-
-Then deploy from the development computer:
-
-```sh
-build-tools/ansible/bin/ansible-playbook \
-  -i deploy/ansible/inventory.yml deploy/ansible/deploy.yml
-```
-
-Use `--ask-become-pass` if sudo needs a password. No credentials or SSH keys are
-stored in the inventory, and SSH host-key checking is not disabled.
 
 The playbook checks Debian/ARM64 compatibility, installs runtime dependencies,
 extracts a checksum-named release under `/opt/drum-machine/releases/`, and
@@ -89,6 +87,12 @@ compatibility and sample loading without playing audio. It installs and enables
 socket with `status`. It does not build SDL or install a compiler on the Pi.
 Updates restart the engine and reset the in-memory pattern. Old releases remain
 on disk; inspect and prune unused releases manually when necessary.
+
+Both step buttons and LEDs are enabled by default. See the
+[combined hardware wiring schema](hardware-wiring.md) before connecting them.
+Ansible configures I²C and service permissions. If it changes the boot setting,
+reboot the Pi once to activate the bus; the playbook does not reboot it.
+[Button diagnostics](cjmcu-step-buttons.md) cover bus detection and settings.
 
 The default output is the Pi's onboard headphone jack. Override
 `drum_machine_audio_device` in `deploy/ansible/group_vars/drum_machines.yml`
@@ -112,6 +116,7 @@ Enter commands such as:
 
 ```text
 status
+select 1
 play
 tempo 128
 volume 1 0.6
@@ -164,6 +169,6 @@ sudo systemctl restart drum-machine
 sudo systemctl stop drum-machine
 ```
 
-MCP23017 [step buttons](cjmcu-step-buttons.md) and
-[step LEDs](cjmcu-step-leds.md) are supported by the service. ADC controls and
+MCP23017 step buttons and LEDs are supported by the service; see the
+[combined wiring reference](hardware-wiring.md). ADC controls and
 pattern/settings persistence are not implemented. Patterns currently reset when the engine restarts.

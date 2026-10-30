@@ -5,12 +5,15 @@ A small, standalone drum machine for Linux. Four sample instruments, one editabl
 
 For the Pi 3 ARM64 cross-build, Ansible deployment to `drummachine.lab.be`, and
 boot service with attachable terminal controls, see [Raspberry Pi deployment](docs/raspberry-pi.md).
-Run `./tools/deploy-rpi3.sh` to build and deploy, or add `--skip-build` to deploy
+Run `./tools/deploy-rpi3.sh --ask-become-pass` to build and deploy, or add
+`--skip-build` to deploy
 the existing ARM64 package.
 
-For physical step buttons using the purchased CJMCU-2317/MCP23017 modules,
-see [wiring and CLI track selection](docs/cjmcu-step-buttons.md).
-The same modules also support [16 step LEDs](docs/cjmcu-step-leds.md).
+For the current Pi + two MCP23017 modules + 16 step buttons + 16 LEDs,
+start with the **[combined wiring schema](docs/hardware-wiring.md)** and
+[parts list](docs/hardware-parts-list.md). [Button diagnostics](docs/cjmcu-step-buttons.md)
+and [LED testing](docs/cjmcu-step-leds.md) cover operation. The
+[eight-track panel](docs/hardware-wiring-8-tracks.md) remains future work.
 
 ![drum-machine](docs/screenshot.png)
 
@@ -42,9 +45,9 @@ The scripts resolve the repository location themselves, so they work from any
 working directory. Builds use Ninja, enable tests, and default to RelWithDebInfo.
 
 ```sh
-./tools/test.sh                       # Build and run headless tests (default)
-./tools/test.sh desktop               # Build and run desktop tests
-./tools/test.sh core --debug          # Run dependency-free Debug tests
+./tools/test.sh                        # Build and run headless tests (default)
+./tools/test.sh desktop                # Build and run desktop tests
+./tools/test.sh core --debug           # Run dependency-free Debug tests
 ./tools/build.sh --test                # Desktop build and checks
 ./tools/build.sh headless --test       # Terminal-only build and checks
 ./tools/build.sh core --debug --test   # Dependency-free Debug build and checks
@@ -75,7 +78,8 @@ The initial scope excludes MIDI, effects, sample browsing, and pattern storage.
 ## Verify
 
 ```sh
-ctest --test-dir build --output-on-failure
+./tools/test.sh                       # Build and check the headless service
+./tools/test.sh desktop               # Also check the desktop frontend
 ./build/drum-machine --render-demo /tmp/drum-machine-demo.wav
 ./build/drum-machine --smoke-test
 ```
@@ -85,6 +89,9 @@ transport, tempo changes, mixing, previews, and the shared control commands. The
 terminal command tests exercise parsing, status, input validation, and audible
 previews through the same instrument interface. Integration checks run the desktop
 with dummy drivers and run the actual terminal executable with no display variables.
+Hardware tests cover button debounce, LED pin mapping and board recovery.
+The service integration check exercises socket clients and missing-hardware
+behaviour with dummy audio. These checks do not exercise physical wiring.
 The render check loads the samples and exports two bars of the default groove.
 
 For a screenshot, `--screenshot /tmp/drum-machine.bmp` captures the second frame;
@@ -117,6 +124,10 @@ stop
 quit
 ```
 
+`select TRACK` chooses the track edited by physical step buttons and shown
+on their LEDs in service mode. It does not change the explicit track argument
+of `step TRACK STEP`.
+
 Track numbers are 1=kick, 2=snare, 3=hi-hat, 4=clap. Steps are 1-16; volume is
 0-1; tempo is 40-240 BPM. `step` toggles a hit. `demo` restores the original
 pattern. `help` lists commands. Audio runs independently while input waits for the
@@ -138,8 +149,8 @@ session. If SDL is supplied as a system package, that package's own backend
 configuration is retained. Audio still needs a working Linux audio backend/device.
 For scripted checks without audio hardware, set `SDL_AUDIODRIVER=dummy`.
 
-The instrument and terminal command tests can also be built without **any** SDL or
-ImGui dependency:
+The instrument, terminal command and hardware logic tests can also be built without
+**any** SDL or ImGui dependency:
 
 ```sh
 cmake -S . -B build-core -G Ninja -DDRUM_MACHINE_BUILD_APP=OFF
@@ -150,12 +161,15 @@ ctest --test-dir build-core --output-on-failure
 ## Architecture and embedded port
 
 ```text
-Desktop frontend ---\
-                      >--- Instrument --- SDL audio output --- Linux audio
-Terminal frontend --/          ^
-                               |
-                        Loaded sample data
+Desktop controls ────────────────┐
+Standalone terminal ────────────┼── Instrument ── SDL audio ── Linux audio
+SSH terminal ── local socket ───┤       ↑
+Step buttons / LEDs ── service ─┘   Loaded samples
 ```
+
+The service serializes socket commands and MCP23017 operations on one control
+thread. Desktop and standalone-terminal modes are alternative ways to run the
+engine. The Pi launcher attaches a terminal client to the existing service.
 
 | Module | Responsibility |
 | --- | --- |
@@ -163,16 +177,18 @@ Terminal frontend --/          ^
 | `src/audio/sdl_audio.*` | SDL audio lifecycle, output stream and callback. No window or ImGui initialization. |
 | `src/audio/samples.*` | Asset discovery, WAV loading and conversion before playback starts. |
 | `src/frontends/desktop.*` | Graphical controls, drawing and window lifecycle. |
-| `src/frontends/terminal.*` | Line-based controls and status output. Standard C++ only. |
+| `src/frontends/terminal.*` | Shared command parsing, status output and standalone terminal. Standard C++ only. |
+| `src/frontends/service.*` | Background engine control, local Unix socket server/client, and serialized hardware polling. |
+| `src/hardware/step_buttons.*` | Linux I²C access, MCP23017 button debounce, LED outputs and module recovery. |
 | `src/app/` | Startup option parsing and offline WAV export. |
 | `src/main.cpp` | Constructs the modules and selects a frontend. |
 
-Both frontends call the same `Instrument` interface: `play()`, `stop()`,
+The frontends and service call the same `Instrument` interface: `play()`, `stop()`,
 `togglePlayback()`, `toggleStep()`, `setTempo()`, `setVolume()`, `toggleMute()`,
-`clearPattern()`, `loadDemo()`, and `preview()`. They read `status()` to update their
-displays. They never touch atomics, pattern masks, voice positions, or sample buffers.
-Mute restoration and demo patterns live in the instrument, so physical controls
-will get the same behavior as desktop controls.
+`selectTrack()`, `toggleSelectedStep()`, `clearPattern()`, `loadDemo()`, and `preview()`.
+They read `status()` to update their displays. They never touch atomics, pattern masks, voice positions, or sample buffers.
+Mute restoration and demo patterns live in the instrument, so physical step controls
+share the same sequencing behaviour as desktop controls.
 
 Commands/status run on one serialized control thread. The audio adapter alone calls
 `render()` on a separate audio thread. The instrument privately communicates changes
@@ -189,8 +205,9 @@ Each instrument has one playback voice; retriggering restarts that sample. Stopp
 halts sequencing while existing hits decay. The audio adapter must be destroyed
 before the instrument; the application constructs them in that order.
 
-For physical buttons, encoders, and a display, replace the frontend with a hardware
-adapter using the same interface. For example, after decoding/debouncing an encoder:
+Physical step buttons and LEDs already use this interface through the service.
+Additional hardware controls can follow the same pattern. For example, after
+decoding/debouncing a future encoder:
 
 ```cpp
 instrument.setTempo(newTempo);
@@ -205,9 +222,9 @@ stay outside audio rendering. Keep the SDL audio adapter on Linux, or supply ano
 adapter calling `render()` if the target requires it. Sample loading is independently
 replaceable by constructing the instrument with prepared PCM samples.
 
-Build natively on the board or use a CMake toolchain file for ARM64. A board port has
-not yet been verified. Validate display/audio drivers on the target before designing
-the enclosure. A 256-frame audio buffer is requested as a hint; actual latency depends
+Use the [Pi 3 build and deployment tools](docs/raspberry-pi.md) for the ARM64
+service. Host tests and cross-builds do not verify the physical wiring or
+end-to-end latency on the Pi. A 256-frame audio buffer is requested as a hint; actual latency depends
 on the backend and device.
 
 Installation is optional:
