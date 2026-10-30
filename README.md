@@ -10,6 +10,7 @@ the existing ARM64 package.
 
 For physical step buttons using the purchased CJMCU-2317/MCP23017 modules,
 see [wiring and CLI track selection](docs/cjmcu-step-buttons.md).
+The same modules also support [16 step LEDs](docs/cjmcu-step-leds.md).
 
 ![drum-machine](docs/screenshot.png)
 

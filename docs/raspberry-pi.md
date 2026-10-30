@@ -164,5 +164,6 @@ sudo systemctl restart drum-machine
 sudo systemctl stop drum-machine
 ```
 
-Pattern/settings persistence and physical GPIO/ADC/LED support are not added
-by this deployment work. Patterns currently reset when the engine restarts.
+MCP23017 [step buttons](cjmcu-step-buttons.md) and
+[step LEDs](cjmcu-step-leds.md) are supported by the service. ADC controls and
+pattern/settings persistence are not implemented. Patterns currently reset when the engine restarts.

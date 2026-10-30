@@ -18,7 +18,7 @@ with tempfile.TemporaryDirectory(prefix="drum-service-") as directory:
     endpoint = Path(directory) / "control.sock"
     with open(Path(directory) / "service.log", "w+") as log:
         service = subprocess.Popen(
-            [binary, "--serve", "--socket", str(endpoint), "--step-buttons",
+            [binary, "--serve", "--socket", str(endpoint), "--step-leds",
              "--i2c-device", str(Path(directory) / "missing-i2c")],
             stdin=subprocess.DEVNULL, stdout=log, stderr=log, env=env,
         )
@@ -90,7 +90,7 @@ with tempfile.TemporaryDirectory(prefix="drum-service-") as directory:
             command("stop")
             assert "stopped / 137 BPM" in command("status")
             for args in (["--serve", "--terminal"], ["--connect", "--render-demo", "ignored.wav"],
-                         ["--step-buttons"], ["--serve", "--step-buttons", "--step-addresses", "0x20", "0x20"],
+                         ["--step-buttons"], ["--step-leds"], ["--serve", "--step-buttons", "--step-addresses", "0x20", "0x20"],
                          ["--serve", "--step-buttons", "--step-addresses", "0x20", "0x28"]):
                 assert subprocess.run([binary, *args], capture_output=True, env=env).returncode != 0
         finally:

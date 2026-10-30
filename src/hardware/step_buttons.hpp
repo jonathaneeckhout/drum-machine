@@ -9,6 +9,7 @@
 namespace drum {
 struct StepButtonConfig {
     bool enabled = false;
+    bool leds = false;
     std::filesystem::path device = "/dev/i2c-1";
     std::array<std::uint8_t, 2> addresses{0x20, 0x21};
 };
@@ -41,12 +42,15 @@ private:
 class Mcp23017Steps {
 public:
     using Clock = std::chrono::steady_clock;
-    Mcp23017Steps(I2cRegisters& bus, std::array<std::uint8_t, 2> addresses, std::ostream& log);
+    Mcp23017Steps(I2cRegisters& bus, std::array<std::uint8_t, 2> addresses, std::ostream& log, bool leds = false);
+    ~Mcp23017Steps();
+    void setLeds(std::uint16_t mask) noexcept { leds_ = mask; }
     std::uint16_t poll(Clock::time_point now);
 private:
     struct Board {
         bool ready = false, reportedFailure = false;
         std::uint8_t stable = 0, candidate = 0;
+        int displayed = -1;
         std::array<Clock::time_point, 8> changed{};
         Clock::time_point retry{}, verify{};
     };
@@ -54,6 +58,9 @@ private:
     const std::array<std::uint8_t, 2> addresses_;
     std::ostream& log_;
     std::array<Board, 2> boards_{};
+    const bool ledOutputs_;
+    std::uint16_t leds_ = 0;
+    void writeLeds(std::uint8_t address, std::uint8_t mask);
     void configure(std::uint8_t address);
     std::uint8_t pressed(std::uint8_t address);
 };

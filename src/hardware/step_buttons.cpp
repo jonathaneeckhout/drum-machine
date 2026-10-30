@@ -47,20 +47,38 @@ void LinuxI2cRegisters::read(std::uint8_t address, std::uint8_t reg, std::span<s
     transfer(messages.data(), messages.size());
 }
 
-Mcp23017Steps::Mcp23017Steps(I2cRegisters& bus, std::array<std::uint8_t, 2> addresses, std::ostream& log)
-    : bus_(bus), addresses_(addresses), log_(log) {
+Mcp23017Steps::Mcp23017Steps(I2cRegisters& bus, std::array<std::uint8_t, 2> addresses, std::ostream& log, bool leds)
+    : bus_(bus), addresses_(addresses), log_(log), ledOutputs_(leds) {
     if (addresses[0] < 0x20 || addresses[0] > 0x27 || addresses[1] < 0x20 || addresses[1] > 0x27 ||
         addresses[0] == addresses[1]) throw std::runtime_error("Step boards need distinct addresses in 0x20..0x27");
+}
+
+Mcp23017Steps::~Mcp23017Steps() {
+    if (!ledOutputs_) return;
+    for (unsigned i = 0; i < boards_.size(); ++i) {
+        if (!boards_[i].ready) continue;
+        try { writeLeds(addresses_[i], 0); } catch (...) {} // Best effort on shutdown.
+    }
+}
+
+void Mcp23017Steps::writeLeds(std::uint8_t address, std::uint8_t mask) {
+    // Active-low LEDs: first LED on GPA7, remaining seven on GPB1..GPB7.
+    // Never alter the direction or pull-ups of the button pins.
+    const std::array<std::uint8_t, 2> latches{
+        static_cast<std::uint8_t>((mask & 1) ? 0 : 0x80),
+        static_cast<std::uint8_t>((~mask) & 0xfe)};
+    bus_.write(address, 0x14, latches);
 }
 
 void Mcp23017Steps::configure(std::uint8_t address) {
     // Power-on register layout: BANK=0. This driver owns both expanders.
     const std::array<std::uint8_t, 1> zero{0};
-    const std::array<std::uint8_t, 2> zeros{0, 0}, inputs{0x7f, 0x7f};
+    const std::array<std::uint8_t, 2> zeros{0, 0}, inputs{0x7f, static_cast<std::uint8_t>(ledOutputs_ ? 0x01 : 0x7f)};
     bus_.write(address, 0x0a, zero);   // IOCON: sequential register access enabled
     bus_.write(address, 0x04, zeros);  // Disable interrupt-on-change (polling only)
     bus_.write(address, 0x02, zeros);  // Normal input polarity
-    bus_.write(address, 0x14, zeros);  // Drive unused, output-only GPA7/GPB7 low
+    if (ledOutputs_) writeLeds(address, 0); // All LEDs off before enabling outputs.
+    else bus_.write(address, 0x14, zeros);
     bus_.write(address, 0x00, inputs); // Safe pins inputs; GPA7/GPB7 outputs
     bus_.write(address, 0x0c, inputs); // Internal pull-ups on safe input pins
 }
@@ -83,19 +101,26 @@ std::uint16_t Mcp23017Steps::poll(Clock::time_point now) {
                 configure(address);
                 board.stable = board.candidate = pressed(address);
                 board.changed.fill(now);
+                board.displayed = -1;
                 board.ready = true;
                 board.reportedFailure = false;
                 board.verify = now + 1s;
                 log_ << "Step buttons: board 0x" << std::hex << unsigned(address) << std::dec << " connected\n";
-                continue;
             }
             if (now >= board.verify) {
                 std::array<std::uint8_t, 2> direction{}, pullups{};
                 bus_.read(address, 0x00, direction);
                 bus_.read(address, 0x0c, pullups);
-                if (direction != std::array<std::uint8_t, 2>{0x7f, 0x7f} || pullups != direction)
+                if (direction != std::array<std::uint8_t, 2>{0x7f, static_cast<std::uint8_t>(ledOutputs_ ? 0x01 : 0x7f)} || pullups != direction)
                     throw std::runtime_error("board reset or configuration changed");
                 board.verify = now + 1s;
+            }
+            if (ledOutputs_) {
+                const auto mask = static_cast<std::uint8_t>(leds_ >> (8 * index));
+                if (board.displayed != mask) {
+                    writeLeds(address, mask);
+                    board.displayed = mask;
+                }
             }
             const auto current = pressed(address);
             for (unsigned bit = 0; bit < 8; ++bit) {

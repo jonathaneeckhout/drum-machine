@@ -28,6 +28,7 @@ Options parseOptions(int argc, char** argv) {
         if (arg == "--terminal") { options.terminal = true; ++frontends; }
         else if (arg == "--serve") { options.serve = true; ++frontends; }
         else if (arg == "--connect") { options.connect = true; ++frontends; }
+        else if (arg == "--step-leds") { options.stepButtons.enabled = true; options.stepButtons.leds = true; }
         else if (arg == "--step-buttons") options.stepButtons.enabled = true;
         else if (arg == "--i2c-device" && i + 1 < argc) {
             options.stepButtons.device = argv[++i];
@@ -79,6 +80,7 @@ void printHelp() {
         "  --command TEXT      Send one command to the service and exit\n"
         "  --socket PATH       Override DRUM_MACHINE_SOCKET or /run/drum-machine/control.sock\n"
         "  --step-buttons      Read two MCP23017 step-button boards in service mode\n"
+        "  --step-leds         Also drive eight LEDs per button board (enables --step-buttons)\n"
         "  --i2c-device PATH   I2C bus device (default /dev/i2c-1)\n"
         "  --step-addresses A B  Board addresses (default 0x20 0x21)\n"
         "  --assets DIR        Override bundled sample directory\n"

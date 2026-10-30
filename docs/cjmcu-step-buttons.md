@@ -77,8 +77,9 @@ Released: input HIGH                  Pressed: input LOW
 
 **Do not connect buttons to GPA7 or GPB7.** The current Microchip datasheet
 restricts those pins to outputs on the MCP23017. The driver sets them as low
-outputs; leave them unconnected. GPB1–GPB6 are spare inputs, currently ignored
-by the application.
+outputs in button-only mode; leave them unconnected in that mode. GPB1–GPB6
+are spare inputs in button-only mode. With LED support enabled, the spare pins
+become outputs: follow the [step LED guide](cjmcu-step-leds.md).
 
 For a four-legged tactile switch, identify the two internally connected pairs
 with a multimeter. Use one terminal from each pair so the connection closes
@@ -127,7 +128,8 @@ drum_machine_step_addresses: ['0x20', '0x21']
 drum_machine_boot_config: /boot/firmware/config.txt
 ```
 
-Set `drum_machine_step_buttons_enabled: false` to deploy a terminal-only service.
+Set both `drum_machine_step_buttons_enabled: false` and
+`drum_machine_step_leds_enabled: false` to deploy a terminal-only service.
 The Ansible playbook requires the firmware file to exist rather than silently
 creating a file at an incorrect boot path.
 
@@ -160,7 +162,7 @@ commands like `step 3 8` still explicitly edit their named track, without
 changing the physical buttons' selected track.
 
 The driver configures both modules exclusively. Do not run another GPIO driver
-or use the spare pins as outputs while this service owns the boards. Configuration
+or configure the spare pins independently while this service owns the boards. Configuration
 is checked periodically; a reset or external configuration change triggers a
 reinitialisation. Start with freshly powered modules in their default BANK=0
 register layout; a previous program that changed BANK must be reset/power-cycled.
@@ -175,8 +177,8 @@ sudo journalctl -u drum-machine -f
 
 For manual diagnostics with the actual executable (the installed launcher is a
 client), use `--serve --step-buttons`, optionally `--i2c-device PATH` and
-`--step-addresses 0x20 0x21`. No LEDs, sliders or physical track-select buttons
-are driven by this change. Pattern and track selection still reset on restart.
+`--step-addresses 0x20 0x21`. For LEDs on the spare pins, see the [step LED guide](cjmcu-step-leds.md).
+Sliders and physical track-select buttons are not implemented. Pattern and track selection still reset on restart.
 
 ## References
 

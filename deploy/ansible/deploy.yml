@@ -16,6 +16,8 @@
           - drum_machine_audio_driver in ['alsa', 'dummy']
           - drum_machine_audio_device is match('^[a-zA-Z0-9_:,=.-]+$')
           - drum_machine_step_buttons_enabled is boolean
+          - drum_machine_step_leds_enabled is boolean
+          - not drum_machine_step_leds_enabled or drum_machine_step_buttons_enabled
           - drum_machine_i2c_device is match('^/dev/i2c-[0-9]+$')
           - drum_machine_step_addresses | length == 2
           - drum_machine_step_addresses | unique | length == 2

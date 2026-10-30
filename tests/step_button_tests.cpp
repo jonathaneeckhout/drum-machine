@@ -6,6 +6,7 @@
 #include <iostream>
 #include <sstream>
 #include <stdexcept>
+#include <vector>
 
 namespace {
 using namespace std::chrono_literals;
@@ -16,6 +17,7 @@ struct FakeBus : drum::I2cRegisters {
     std::array<std::array<std::uint8_t, 0x16>, 2> registers{};
     std::array<bool, 2> missing{};
     std::array<int, 2> attempts{};
+    std::vector<std::pair<unsigned, unsigned>> writes;
     FakeBus() { setPressed(0, 0); setPressed(1, 0); }
     void setPressed(unsigned board, std::uint8_t bits) {
         registers[board][0x12] = static_cast<std::uint8_t>(~bits | 0x80);
@@ -30,6 +32,10 @@ struct FakeBus : drum::I2cRegisters {
     }
     void write(std::uint8_t address, std::uint8_t reg, std::span<const std::uint8_t> bytes) override {
         const auto board = access(address);
+        writes.emplace_back(board, reg);
+        if (reg == 0 && bytes[1] == 1)
+            check(registers[board][0x14] == 0x80 && registers[board][0x15] == 0xfe,
+                  "LED latches are off before outputs are enabled");
         for (std::size_t i = 0; i < bytes.size(); ++i) registers[board][reg + i] = bytes[i];
     }
     void read(std::uint8_t address, std::uint8_t reg, std::span<std::uint8_t> bytes) override {
@@ -104,6 +110,49 @@ int main() {
     drum::Mcp23017Steps initialHeld(held, {0x20, 0x21}, log);
     check(initialHeld.poll(start) == 0 && initialHeld.poll(start + 25ms) == 0,
           "buttons held at startup do not edit the pattern");
+
+    FakeBus ledBus;
+    {
+        drum::Mcp23017Steps panel(ledBus, {0x20, 0x21}, log, true);
+        panel.poll(start);
+        for (const auto& r : ledBus.registers)
+            check(r[0] == 0x7f && r[1] == 1 && r[0x0c] == 0x7f && r[0x0d] == 1,
+                  "eight button inputs keep pull-ups while eight LED pins become outputs");
+        for (unsigned step = 0; step < 16; ++step) {
+            panel.setLeds(1u << step);
+            panel.poll(start + 1ms);
+            for (unsigned board = 0; board < 2; ++board) {
+                const auto mask = static_cast<unsigned>((1u << step) >> (8 * board)) & 0xff;
+                check(ledBus.registers[board][0x14] == ((mask & 1) ? 0 : 0x80) &&
+                      ledBus.registers[board][0x15] == ((~mask) & 0xfe),
+                      "each LED maps to exactly one active-low output on its own board");
+            }
+        }
+        const auto writes = ledBus.writes.size();
+        panel.poll(start + 2ms);
+        check(ledBus.writes.size() == writes, "unchanged LED state avoids redundant writes");
+        panel.setLeds(0xffff);
+        ledBus.setPressed(0, 0x81); ledBus.setPressed(1, 0x81);
+        panel.poll(start + 3ms);
+        check(panel.poll(start + 23ms) == 0x8181, "LED outputs do not interfere with button presses");
+        ledBus.missing[1] = true;
+        panel.poll(start + 24ms);
+        panel.setLeds(0x0101);
+        panel.poll(start + 25ms);
+        check(ledBus.registers[0][0x14] == 0 && ledBus.registers[0][0x15] == 0xfe,
+              "first board LEDs work with only one module connected");
+        ledBus.missing[1] = false;
+        panel.poll(start + 1024ms);
+        check(ledBus.registers[1][0x14] == 0 && ledBus.registers[1][0x15] == 0xfe,
+              "reconnected board receives current LED state");
+        ledBus.registers[0][1] = 0xff;
+        panel.poll(start + 2024ms);
+        panel.poll(start + 3024ms);
+        check(ledBus.registers[0][1] == 1 && ledBus.registers[0][0x14] == 0,
+              "reset board restores output directions and current LED state");
+    }
+    for (const auto& r : ledBus.registers)
+        check(r[0x14] == 0x80 && r[0x15] == 0xfe, "shutdown turns LEDs off");
 
     drum::Instrument instrument(drum::Samples{});
     instrument.clearPattern();

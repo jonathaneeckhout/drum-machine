@@ -146,12 +146,21 @@ int runService(Instrument& instrument, const std::filesystem::path& path,
     Signals signals;
     LinuxI2cRegisters bus(buttons.device);
     std::optional<Mcp23017Steps> steps;
-    if (buttons.enabled) steps.emplace(bus, buttons.addresses, std::cerr);
+    if (buttons.enabled) steps.emplace(bus, buttons.addresses, std::cerr, buttons.leds);
     std::vector<Peer> peers;
     std::cout << "Control service listening on " << path << std::endl;
     while (!stopping && !audioFailed()) {
         // GPIO and CLI commands share this thread; no hardware I/O touches audio.
         if (steps) {
+            if (buttons.leds) {
+                const auto state = instrument.status();
+                std::uint16_t mask = 0;
+                for (int step = 0; step < stepCount; ++step)
+                    if (state.tracks[state.selectedTrack].steps[step]) mask |= 1u << step;
+                if (state.playing && state.currentStep >= 0 && state.currentStep < stepCount)
+                    mask ^= 1u << state.currentStep;
+                steps->setLeds(mask);
+            }
             const auto presses = steps->poll(Clock::now());
             for (int step = 0; step < stepCount; ++step)
                 if (presses & (1u << step)) instrument.toggleSelectedStep(step);
