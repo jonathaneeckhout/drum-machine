@@ -42,6 +42,9 @@ The scripts resolve the repository location themselves, so they work from any
 working directory. Builds use Ninja, enable tests, and default to RelWithDebInfo.
 
 ```sh
+./tools/test.sh                       # Build and run headless tests (default)
+./tools/test.sh desktop               # Build and run desktop tests
+./tools/test.sh core --debug          # Run dependency-free Debug tests
 ./tools/build.sh --test                # Desktop build and checks
 ./tools/build.sh headless --test       # Terminal-only build and checks
 ./tools/build.sh core --debug --test   # Dependency-free Debug build and checks
@@ -51,7 +54,7 @@ working directory. Builds use Ninja, enable tests, and default to RelWithDebInfo
 ./tools/clean.sh                       # Remove build/, build-headless/, build-core/
 ```
 
-`CMAKE_BUILD_PARALLEL_LEVEL` also sets the build job count. Both scripts accept
+`CMAKE_BUILD_PARALLEL_LEVEL` also sets the build job count. The scripts accept
 `--help`. Cleanup preserves source files, assets, `.deps/`, and custom build
 directories; it refuses symlinked directories and directories without a CMake
 cache pointing to this source tree.
